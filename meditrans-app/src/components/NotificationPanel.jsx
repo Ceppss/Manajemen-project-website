@@ -1,5 +1,3 @@
-import { notifications } from "../data/mockData";
-
 export default function NotificationPanel({ notifications, onItemClick, onMarkAllRead }) {
   const unreadCount = notifications.filter((n) => n.unread).length;
 

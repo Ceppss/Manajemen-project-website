@@ -1,0 +1,24 @@
+services:
+  backend:
+    build: ./backend
+    container_name: meditrans-backend
+    restart: unless-stopped
+    environment:
+      - PORT=5000
+      - DB_PATH=/app/data/meditrans.db
+    volumes:
+      - meditrans-db:/app/data
+    ports:
+      - "5001:5000"
+
+  frontend:
+    build: ./meditrans-app
+    container_name: meditrans-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  meditrans-db:

@@ -6,8 +6,8 @@ export default function Dashboard() {
     <div>
       <Tabs
         tabs={[
+          { label: "Overview", to: "/dashboard" },
           { label: "Calendar", to: "/dashboard/calendar" },
-          { label: "Summary", to: "/dashboard/summary" },
         ]}
       />
       <Outlet />

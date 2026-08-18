@@ -1,0 +1,6 @@
+node_modules
+meditrans.db
+meditrans.db-wal
+meditrans.db-shm
+.env
+npm-debug.log

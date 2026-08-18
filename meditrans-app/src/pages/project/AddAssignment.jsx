@@ -1,13 +1,22 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Minus, ChevronDown } from "lucide-react";
-import { members } from "../../data/mockData";
+import { logAudit } from "../../auth/audit";
+import { useMembers, useStore, createItem } from "../../auth/store";
+
+const inputClass =
+  "w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 outline-none transition-colors focus:border-navy";
 
 export default function AddAssignment() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const linkedProjectId = searchParams.get("project") || "";
+  const members = useMembers();
+  const projects = useStore("projects");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState("");
+  const [projectId, setProjectId] = useState(linkedProjectId);
   const [assignees, setAssignees] = useState([]);
   const [error, setError] = useState("");
 
@@ -23,13 +32,28 @@ export default function AddAssignment() {
     setAssignees((list) => list.filter((a) => a !== id));
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    if (!title.trim() || !description.trim() || !date || assignees.length === 0) {
-      setError("Semua field wajib diisi, termasuk minimal satu assignee.");
+    if (!title.trim() || !description.trim() || !date || !projectId || assignees.length === 0) {
+      setError("Semua field wajib diisi, termasuk project dan minimal satu assignee.");
       return;
     }
     setError("");
+    const project = projects.find((p) => p.id === projectId);
+    await createItem("tasks", "/tasks", {
+      title: title.trim(),
+      description: description.trim(),
+      priority: "Middle",
+      status: "Not Started",
+      assignees,
+      dueInDays: 0,
+      dueColor: "ongoing",
+      startDate: date,
+      endDate: date,
+      projectId,
+      type: "project",
+    });
+    logAudit("Add Task", `${title.trim()} diassign ke ${assignees.length} member (project ${project?.name || "-"})`);
     navigate("/project");
   }
 
@@ -44,6 +68,15 @@ export default function AddAssignment() {
       >
         <ArrowLeft className="h-4 w-4" />
       </button>
+
+      <div className="mx-auto mb-4 flex max-w-3xl items-center justify-between gap-3">
+        <h2 className="text-xl font-bold text-navy">
+          Assign Project:{" "}
+          <span className="text-navy/70">
+            {linkedProjectId ? projects.find((p) => p.id === linkedProjectId)?.name || "-" : "Pilih di bawah"}
+          </span>
+        </h2>
+      </div>
 
       <form onSubmit={handleSubmit} className="mx-auto max-w-3xl rounded-2xl border border-navy/30 bg-white p-8 shadow-card">
         <label className="mb-1 block text-sm font-bold text-gray-800">Task Title</label>
@@ -76,7 +109,37 @@ export default function AddAssignment() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-bold text-gray-800">Assign too</label>
+            <label className="mb-1 block text-sm font-bold text-gray-800">Terhubung ke Project</label>
+            {linkedProjectId ? (
+              <div className="flex items-center justify-between gap-2 rounded-lg bg-gray-100 px-4 py-2.5">
+                <span className="text-sm font-semibold text-gray-700">
+                  {projects.find((p) => p.id === linkedProjectId)?.name || "-"}
+                </span>
+                <span className="text-[11px] font-semibold text-emerald-600">Otomatis terhubung</span>
+              </div>
+            ) : (
+              <select
+                required
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+                className={inputClass}
+              >
+                <option value="" disabled>
+                  Pilih project
+                </option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <label className="mb-1 block text-sm font-bold text-gray-800">Assign too</label>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="relative">
               <select
                 onChange={handleAddAssignee}
@@ -91,7 +154,7 @@ export default function AddAssignment() {
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             </div>
 
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 space-y-2 sm:mt-0">
               {assignees.map((id) => {
                 const m = members.find((mm) => mm.id === id);
                 return (

@@ -15,7 +15,10 @@ export default function DonutChart({ segments, size = 200, strokeWidth = 22 }) {
   const [hovered, setHovered] = useState(null);
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  let offsetAcc = 0;
+
+  const offsets = segments.map((_, i) =>
+    segments.slice(0, i).reduce((sum, s) => sum + (s.value / 100) * circumference, 0)
+  );
 
   const active = hovered !== null ? segments[hovered] : null;
 
@@ -37,7 +40,7 @@ export default function DonutChart({ segments, size = 200, strokeWidth = 22 }) {
                 stroke={COLORS[seg.color] || seg.color}
                 strokeWidth={hovered === i ? strokeWidth + 4 : strokeWidth}
                 strokeDasharray={`${dash} ${gap}`}
-                strokeDashoffset={-offsetAcc}
+                strokeDashoffset={-offsets[i]}
                 strokeLinecap="butt"
                 opacity={isDimmed ? 0.35 : 1}
                 className="cursor-pointer transition-all duration-150"
@@ -45,7 +48,6 @@ export default function DonutChart({ segments, size = 200, strokeWidth = 22 }) {
                 onMouseLeave={() => setHovered(null)}
               />
             );
-            offsetAcc += dash;
             return circle;
           })}
         </g>

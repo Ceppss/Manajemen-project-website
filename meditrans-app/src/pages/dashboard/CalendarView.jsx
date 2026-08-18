@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { calendarTasks } from "../../data/mockData";
+import { useStore } from "../../auth/store";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTH_NAMES = [
@@ -8,6 +8,12 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 const MAX_VISIBLE_TASKS = 2;
+
+const DUE_COLOR = {
+  overdue: "#EB5757",
+  finished: "#2FBF71",
+  ongoing: "#F5A623",
+};
 
 function buildCalendarGrid(year, month) {
   const firstOfMonth = new Date(year, month, 1);
@@ -30,15 +36,27 @@ function buildCalendarGrid(year, month) {
 }
 
 export default function CalendarView() {
-  const [cursor, setCursor] = useState(new Date(2026, 9, 1));
+  const tasks = useStore("tasks");
+  const [cursor, setCursor] = useState(new Date());
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
   const cells = buildCalendarGrid(year, month);
-  const tasksByDay = calendarTasks.reduce((acc, t) => {
-    (acc[t.day] ||= []).push(t);
-    return acc;
-  }, {});
+
+  const tasksByDay = (() => {
+    const map = {};
+    tasks.forEach((t) => {
+      if (!t.startDate) return;
+      const d = new Date(t.startDate);
+      if (d.getMonth() === month && d.getFullYear() === year) {
+        (map[d.getDate()] ||= []).push({
+          title: t.title,
+          color: DUE_COLOR[t.dueColor] || "#D9D9D9",
+        });
+      }
+    });
+    return map;
+  })();
 
   function shiftMonth(delta) {
     setCursor(new Date(year, month + delta, 1));

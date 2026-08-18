@@ -1,14 +1,16 @@
 import { useState, useRef } from "react";
-import { Bell, LogOut } from "lucide-react";
+import { Bell, LogOut, Menu } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { currentUser, notifications as initialNotifications } from "../data/mockData";
+import { clearSession, getUser, getProfile } from "../auth/api";
+import { getRole } from "../auth/role";
 import NotificationPanel from "./NotificationPanel";
 import ProfileModal from "./ProfileModal";
 import SearchBar from "./SearchBar";
 
 const CLOSE_DELAY_MS = 250;
 
-export default function Topbar() {
+export default function Topbar({ onMenuClick }) {
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -16,6 +18,16 @@ export default function Topbar() {
   const closeTimer = useRef(null);
 
   const hasUnread = notifList.some((n) => n.unread);
+  const role = getRole();
+  const sessionUser = getUser();
+  const profile = getProfile(sessionUser?.id);
+  const displayName = profile?.name || sessionUser?.name || currentUser.name;
+  const initials = displayName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
 
   function openNotifications() {
     if (closeTimer.current) {
@@ -40,15 +52,27 @@ export default function Topbar() {
   }
 
   function handleLogout() {
+    clearSession();
     navigate("/login");
   }
 
   return (
     <>
-      <header className="flex h-[68px] shrink-0 items-center gap-6 border-b border-gray-200 bg-white px-8">
+      <header className="flex h-[68px] shrink-0 items-center gap-4 border-b border-gray-200 bg-white px-4 sm:px-8">
+        <button
+          onClick={onMenuClick}
+          aria-label="Open menu"
+          className="text-gray-500 hover:text-navy lg:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
         <SearchBar />
 
         <div className="ml-auto flex items-center gap-5">
+          <span className="hidden rounded-md bg-navy/10 px-2.5 py-1 text-[11px] font-bold text-navy sm:inline-block">
+            {role}
+          </span>
+
           <div className="relative" onMouseEnter={openNotifications} onMouseLeave={scheduleCloseNotifications}>
             <button className="relative text-gray-500 hover:text-navy" aria-label="Notifications">
               <Bell className="h-5 w-5" />
@@ -64,10 +88,16 @@ export default function Topbar() {
           </div>
 
           <button onClick={() => setShowProfile(true)} className="flex items-center gap-3 rounded-lg px-2 py-1 hover:bg-gray-50">
-            <img src={currentUser.avatar} alt={currentUser.name} className="h-9 w-9 rounded-full object-cover" />
-            <div className="text-left leading-tight">
-              <p className="text-sm font-semibold text-navy">{currentUser.department}</p>
-              <p className="text-xs text-gray-400">{currentUser.zone}</p>
+            {profile?.photo ? (
+              <img src={profile.photo} alt={displayName} className="h-9 w-9 rounded-full object-cover" />
+            ) : (
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy text-xs font-bold text-white">
+                {initials}
+              </span>
+            )}
+            <div className="hidden text-left leading-tight sm:block">
+              <p className="text-sm font-semibold text-navy">{displayName}</p>
+              <p className="text-xs text-gray-400">{role}</p>
             </div>
           </button>
 
