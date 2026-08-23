@@ -27,10 +27,10 @@ function startOfYear(d) {
   return new Date(d.getFullYear(), 0, 1);
 }
 
-// The visible window depends on the granularity: "Day" zooms tightly to the
-// task dates, "Month" expands to full calendar months, "Year" expands to full
-// calendar years — so each mode shows a complete, meaningful span instead of
-// an arbitrary sliver.
+// The visible window depends on the granularity: "Day" spans the earliest
+// task's month through at least the latest task's end date (so nothing gets
+// clipped), "Month" expands to full calendar months, "Year" expands to full
+// calendar years — so each mode shows a complete, meaningful span.
 function computeRange(granularity, rawStart, rawEnd) {
   if (granularity === "month") {
     return {
@@ -44,9 +44,12 @@ function computeRange(granularity, rawStart, rawEnd) {
       rangeEnd: new Date(rawEnd.getFullYear() + 10, 0, 1),
     };
   }
+  const start = startOfMonth(rawStart);
+  const minEnd = new Date(start.getTime() + 30 * DAY_MS);
+  const end = new Date(startOfDay(rawEnd).getTime() + DAY_MS);
   return {
-    rangeStart: new Date(rawStart.getTime() - 2 * DAY_MS),
-    rangeEnd: new Date(rawEnd.getTime() + 2 * DAY_MS),
+    rangeStart: start,
+    rangeEnd: end > minEnd ? end : minEnd,
   };
 }
 

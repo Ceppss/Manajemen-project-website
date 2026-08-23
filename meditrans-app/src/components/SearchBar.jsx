@@ -1,16 +1,13 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, X } from "lucide-react";
-import { tasks, reports, requests } from "../data/mockData";
-
-const SOURCES = [
-  { list: tasks, type: "Assignment", to: "/assignment" },
-  { list: reports, type: "Report", to: "/report" },
-  { list: requests, type: "Request", to: "/request" },
-];
+import { useStore } from "../auth/store";
 
 export default function SearchBar() {
   const navigate = useNavigate();
+  const tasks = useStore("tasks");
+  const reports = useStore("reports");
+  const projects = useStore("projects");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef(null);
@@ -18,11 +15,13 @@ export default function SearchBar() {
   const results =
     query.trim().length === 0
       ? []
-      : SOURCES.flatMap(({ list, type, to }) =>
-          list
-            .filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase()))
-            .map((item) => ({ id: `${type}-${item.id}`, title: item.title, type, to }))
-        ).slice(0, 8);
+      : [
+          ...tasks.map((item) => ({ id: `Assignment-${item.id}`, title: item.title, type: "Assignment", to: "/assignment" })),
+          ...reports.map((item) => ({ id: `Report-${item.id}`, title: item.title, type: "Report", to: "/report" })),
+          ...projects.map((item) => ({ id: `Project-${item.id}`, title: item.name, type: "Project", to: `/project/${item.id}` })),
+        ]
+          .filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase()))
+          .slice(0, 8);
 
   function handleSelect(result) {
     setQuery("");

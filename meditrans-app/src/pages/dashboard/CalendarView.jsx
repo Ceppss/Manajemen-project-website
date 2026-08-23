@@ -1,6 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { calendarTasks } from "../../data/mockData";
+import { useStore, isTaskOverdue } from "../../auth/store";
+import { getRole } from "../../auth/role";
+import { getUser } from "../../auth/api";
+import { visibleTasksFor } from "../../auth/visibility";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTH_NAMES = [
@@ -8,6 +12,12 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 const MAX_VISIBLE_TASKS = 2;
+
+function chipColor(t) {
+  if (t.status === "Finished") return "#2FBF71";
+  if (isTaskOverdue(t)) return "#EB5757";
+  return "#F5A623";
+}
 
 function buildCalendarGrid(year, month) {
   const firstOfMonth = new Date(year, month, 1);
@@ -30,15 +40,35 @@ function buildCalendarGrid(year, month) {
 }
 
 export default function CalendarView() {
-  const [cursor, setCursor] = useState(new Date(2026, 9, 1));
+  const navigate = useNavigate();
+  const tasks = useStore("tasks");
+  const projects = useStore("projects");
+  const [cursor, setCursor] = useState(new Date());
+
+  const role = getRole();
+  const me = getUser();
+  const myId = Number(me?.id);
+  const visibleTasks = visibleTasksFor(role, myId, tasks, projects);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
   const cells = buildCalendarGrid(year, month);
-  const tasksByDay = calendarTasks.reduce((acc, t) => {
-    (acc[t.day] ||= []).push(t);
-    return acc;
-  }, {});
+
+  const tasksByDay = (() => {
+    const map = {};
+    visibleTasks.forEach((t) => {
+      if (!t.startDate) return;
+      const d = new Date(t.startDate);
+      if (d.getMonth() === month && d.getFullYear() === year) {
+        (map[d.getDate()] ||= []).push({
+          id: t.id,
+          title: t.title,
+          color: chipColor(t),
+        });
+      }
+    });
+    return map;
+  })();
 
   function shiftMonth(delta) {
     setCursor(new Date(year, month + delta, 1));
@@ -83,14 +113,15 @@ export default function CalendarView() {
               {visibleTasks.length > 0 && (
                 <div className="mt-1.5 flex w-full flex-col gap-1">
                   {visibleTasks.map((t, ti) => (
-                    <span
+                    <button
                       key={ti}
+                      onClick={() => navigate(`/assignment/edit-task/${t.id}`)}
                       title={t.title}
-                      className="truncate rounded px-1.5 py-0.5 text-left text-[10px] font-semibold text-white"
+                      className="truncate rounded px-1.5 py-0.5 text-left text-[10px] font-semibold text-white hover:brightness-110"
                       style={{ backgroundColor: t.color }}
                     >
                       {t.title}
-                    </span>
+                    </button>
                   ))}
                   {extraCount > 0 && (
                     <span className="text-left text-[10px] font-semibold text-gray-400">
