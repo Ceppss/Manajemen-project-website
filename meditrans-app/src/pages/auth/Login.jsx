@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Lock, Mail } from "lucide-react";
+import { Lock, Mail, Eye, EyeOff } from "lucide-react";
 import { api, setToken, setUser } from "../../auth/api";
 
 export default function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -61,13 +62,24 @@ export default function Login() {
 
           <label className="flex items-center gap-2 rounded-lg border border-gray-300 bg-gray-100 px-4 py-3">
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-transparent text-sm text-gray-700 outline-none placeholder:text-gray-500"
             />
-            <Lock className="h-5 w-5 shrink-0 text-gray-700" strokeWidth={1.5} />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? "Sembunyikan password" : "Lihat password"}
+              className="shrink-0 text-gray-500 hover:text-gray-700"
+            >
+              {showPassword ? (
+                <EyeOff className="h-5 w-5" strokeWidth={1.5} />
+              ) : (
+                <Eye className="h-5 w-5" strokeWidth={1.5} />
+              )}
+            </button>
           </label>
 
           {error && <p className="text-xs font-medium text-red-500">{error}</p>}
