@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CheckCircle2,
+  Download,
   FileText,
   ImagePlus,
   MapPin,
@@ -10,11 +11,13 @@ import {
   Send,
   ThumbsUp,
   Undo2,
+  X,
 } from "lucide-react";
 import { StatusBadge } from "../../components/StatusBadge";
-import { getRole, isLead, canSubmitReport } from "../../auth/role";
-import { logAudit } from "../../auth/audit";
+import { getRole, isLead, canSeeDailyReport } from "../../auth/role";
+import { getUser } from "../../auth/api";
 import { useStore, updateItem } from "../../auth/store";
+import { parseMediaList, openDataUrl } from "../../auth/media";
 
 function InfoRow({ label, value }) {
   return (
@@ -41,11 +44,18 @@ function ReportDetailInner({ id }) {
   const found = reports.find((r) => r.id === id) || dailyReports.find((r) => r.id === id);
   const isProject = reports.some((r) => r.id === id);
   const role = getRole();
-  const canReview = isLead(role);
-  const canSubmit = canSubmitReport(role);
   const [report, setReport] = useState(found);
   const [revisionMode, setRevisionMode] = useState(false);
   const [notes, setNotes] = useState("");
+  const [lightbox, setLightbox] = useState(null);
+
+  if (!isProject && !canSeeDailyReport(role)) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-400">
+        Daily report hanya bisa dilihat oleh member dan lead project.
+      </div>
+    );
+  }
 
   if (!report) {
     return (
@@ -59,9 +69,21 @@ function ReportDetailInner({ id }) {
   const projectName =
     report.project || (linkedTask ? projects.find((p) => p.id === linkedTask.projectId)?.name : null) || "-";
   const taskName = report.task || linkedTask?.title || "-";
-  const approvalNames = (report.approvalBy || [])
-    .map((uid) => users.find((u) => u.id === uid)?.name)
-    .filter(Boolean);
+  const submitter = users.find((u) => u.id === report.createdBy)?.name || "-";
+  const currentUserId = getUser()?.id;
+  const isOwner = report.createdBy === currentUserId;
+  // Project reports pick specific leads as approvers at submission time; daily reports
+  // require every current lead (other than the submitter) to sign off.
+  const requiredApproverIds = isProject
+    ? report.approvalBy || []
+    : users.filter((u) => u.role === "Lead Project" && u.id !== report.createdBy).map((u) => u.id);
+  const requiredApprovals = requiredApproverIds.length;
+  const grantedApprovals = (report.approvedBy || []).filter((uid) => requiredApproverIds.includes(uid)).length;
+  const alreadyApproved = (report.approvedBy || []).includes(currentUserId);
+  const canReviewThis = isLead(role) && !isOwner;
+  const photoList = parseMediaList(report.photo);
+  const attachmentList = parseMediaList(report.attachment);
+  const isViewable = (media) => /^data:(image\/|application\/pdf|text\/)/.test(media.data);
 
   async function updateReport(patch) {
     const path = isProject ? `/reports/${id}` : `/daily-reports/${id}`;
@@ -73,17 +95,15 @@ function ReportDetailInner({ id }) {
   }
 
   async function handleApprove() {
-    await updateReport({ status: "Approve", notes: undefined });
+    await updateReport({ approval: { action: "approve" } });
     setRevisionMode(false);
-    logAudit("Approve Report", `${report.title} disetujui`);
   }
 
   async function handleSendRevision() {
     if (!notes.trim()) return;
-    await updateReport({ status: "Revision", notes: notes.trim() });
+    await updateReport({ approval: { action: "revision", notes: notes.trim() } });
     setRevisionMode(false);
     setNotes("");
-    logAudit("Needs Revision", `${report.title} dikembalikan: ${notes.trim()}`);
   }
 
   return (
@@ -116,6 +136,7 @@ function ReportDetailInner({ id }) {
             </>
           )}
           <InfoRow label="Status" value={report.status} />
+          <InfoRow label="Submitted by" value={submitter} />
           {!isProject && report.gps?.lat && report.gps?.lng && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Lokasi (GPS)</p>
@@ -130,19 +151,28 @@ function ReportDetailInner({ id }) {
               </a>
             </div>
           )}
-          {isProject && approvalNames.length > 0 && (
+          {requiredApproverIds.length > 0 && (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Approval from</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Approval progress ({grantedApprovals}/{requiredApprovals})
+              </p>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {approvalNames.map((name) => (
-                  <span
-                    key={name}
-                    className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1 text-xs font-semibold text-gray-700"
-                  >
-                    <CheckCircle2 className="h-3 w-3 text-status-finished" />
-                    {name}
-                  </span>
-                ))}
+                {requiredApproverIds.map((uid) => {
+                  const name = users.find((u) => u.id === uid)?.name || `Lead #${uid}`;
+                  const done = (report.approvedBy || []).includes(uid);
+                  return (
+                    <span
+                      key={uid}
+                      className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-semibold ${
+                        done ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-gray-300 text-gray-700"
+                      }`}
+                    >
+                      <CheckCircle2 className={`h-3 w-3 ${done ? "text-status-finished" : "text-gray-300"}`} />
+                      {name}
+                      {done && " ✓"}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -157,27 +187,69 @@ function ReportDetailInner({ id }) {
         </div>
 
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3">
-            <ImagePlus className="h-4 w-4 shrink-0 text-gray-400" />
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Foto</p>
-              <p className="truncate text-sm font-semibold text-gray-800">
-                {report.photo && report.photo !== "-" ? report.photo : "Tidak ada foto"}
+          <div className="flex items-start gap-3 rounded-xl border border-gray-200 px-4 py-3">
+            <ImagePlus className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Foto {photoList.length > 0 && `(${photoList.length})`}
               </p>
+              {photoList.length > 0 ? (
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {photoList.map((p, i) => (
+                    <img
+                      key={i}
+                      src={p.data}
+                      alt={p.name}
+                      className="h-20 w-full cursor-pointer rounded-lg object-cover"
+                      onClick={() => setLightbox(p.data)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="truncate text-sm font-semibold text-gray-800">Tidak ada foto</p>
+              )}
             </div>
           </div>
-          <div className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3">
-            <Paperclip className="h-4 w-4 shrink-0 text-gray-400" />
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Attachment</p>
-              <p className="truncate text-sm font-semibold text-gray-800">
-                {report.attachment && report.attachment !== "-" ? report.attachment : "Tidak ada attachment"}
+          <div className="flex items-start gap-3 rounded-xl border border-gray-200 px-4 py-3">
+            <Paperclip className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Attachment {attachmentList.length > 0 && `(${attachmentList.length})`}
               </p>
+              {attachmentList.length > 0 ? (
+                <div className="mt-1.5 space-y-1.5">
+                  {attachmentList.map((a, i) =>
+                    isViewable(a) ? (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => openDataUrl(a.data)}
+                        className="flex max-w-full items-center gap-1.5 truncate text-sm font-semibold text-navy hover:underline"
+                      >
+                        <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{a.name} — Buka file</span>
+                      </button>
+                    ) : (
+                      <a
+                        key={i}
+                        href={a.data}
+                        download={a.name}
+                        className="flex max-w-full items-center gap-1.5 truncate text-sm font-semibold text-navy hover:underline"
+                      >
+                        <Download className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{a.name} — Unduh file</span>
+                      </a>
+                    )
+                  )}
+                </div>
+              ) : (
+                <p className="truncate text-sm font-semibold text-gray-800">Tidak ada attachment</p>
+              )}
             </div>
           </div>
         </div>
 
-        {isProject && report.status === "Revision" && canSubmit && (
+        {report.status === "Revision" && isOwner && (
           <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-5">
             {report.notes && (
               <>
@@ -199,26 +271,38 @@ function ReportDetailInner({ id }) {
           </div>
         )}
 
-        {isProject && report.status === "Approve" && (
+        {report.status === "Approve" && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-700">
-            Laporan ini sudah di-approve oleh lead project.
+            Laporan ini sudah di-approve oleh {isProject ? "lead project" : "semua lead project"}.
           </div>
         )}
 
-        {isProject && report.status === "Review" && canReview && (
+        {report.status === "Review" && !isProject && isOwner && requiredApproverIds.length === 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-700">
+            Belum ada lead project lain yang bisa approve laporan ini. Laporan akan tetap "Review" sampai ada lead
+            lain di sistem.
+          </div>
+        )}
+
+        {report.status === "Review" && canReviewThis && (
           <div className="rounded-xl border border-gray-200 p-5">
             <h4 className="mb-1 text-sm font-bold text-navy">Review Report</h4>
             <p className="mb-4 text-xs text-gray-400">
-              Approve laporan ini, atau kembalikan ke member project untuk revisi.
+              Approve laporan ini, atau kembalikan untuk revisi.
             </p>
 
-            {revisionMode ? (
+            {alreadyApproved ? (
+              <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                Anda sudah approve laporan ini. Menunggu approval lead project lain
+                ({grantedApprovals}/{requiredApprovals}).
+              </p>
+            ) : revisionMode ? (
               <div className="space-y-3">
                 <textarea
                   rows={3}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Catatan revisi untuk member project..."
+                  placeholder="Catatan revisi untuk pembuat laporan..."
                   className="w-full resize-none rounded-lg border border-gray-200 px-4 py-2.5 text-sm text-gray-700 outline-none focus:border-navy"
                 />
                 <div className="flex justify-end gap-3">
@@ -247,7 +331,7 @@ function ReportDetailInner({ id }) {
                   className="flex items-center gap-2 rounded-lg bg-status-finished px-4 py-2.5 text-sm font-semibold text-white hover:brightness-95"
                 >
                   <ThumbsUp className="h-4 w-4" />
-                  Approve
+                  {requiredApprovals > 1 ? "Approve (lanjut lead berikutnya)" : "Approve"}
                 </button>
                 <button
                   type="button"
@@ -262,6 +346,28 @@ function ReportDetailInner({ id }) {
           </div>
         )}
       </div>
+
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightbox(null)}
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+            aria-label="Tutup"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={lightbox}
+            alt="Foto report"
+            className="max-h-full max-w-full rounded-lg object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

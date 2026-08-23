@@ -13,6 +13,8 @@ export default function AdminProject() {
   const leads = useLeads();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [deadline, setDeadline] = useState("");
   const [pjId, setPjId] = useState("");
 
   async function handleSubmit(e) {
@@ -21,11 +23,15 @@ export default function AdminProject() {
     await createItem("projects", "/projects", {
       name: name.trim(),
       description: description.trim(),
+      startDate: startDate || "",
+      deadline: deadline || "-",
       pjId,
     });
     const pj = leads.find((l) => l.id === Number(pjId));
     setName("");
     setDescription("");
+    setStartDate("");
+    setDeadline("");
     setPjId("");
     logAudit("Create Project", `${name.trim()} dibuat dengan PJ ${pj?.name || "-"}`);
   }
@@ -33,10 +39,8 @@ export default function AdminProject() {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-xl font-bold text-navy">Admin - Project</h2>
-        <p className="mt-0.5 text-sm text-gray-400">
-          Buat project baru dan tunjuk penanggung jawab (PJ) dari lead project.
-        </p>
+        <h2 className="text-xl font-bold text-navy">Project</h2>
+        
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -70,8 +74,29 @@ export default function AdminProject() {
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-gray-700">Start Date</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-gray-700">Deadline Date</label>
+                <input
+                  type="date"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-gray-700">PJ Project</label>
+              <label className="mb-1.5 block text-sm font-semibold text-gray-700">Lead Project</label>
               {leads.length === 0 ? (
                 <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">
                   Belum ada lead project. Tambahkan akun dengan role Lead Project dulu di menu{" "}
@@ -92,11 +117,7 @@ export default function AdminProject() {
                   ))}
                 </select>
               )}
-              {leads.length > 0 && (
-                <p className="mt-1.5 text-xs text-gray-400">
-                  PJ bertanggung jawab mengelola project ini (menambah member & lead lain).
-                </p>
-              )}
+
             </div>
 
             <div className="flex justify-end">

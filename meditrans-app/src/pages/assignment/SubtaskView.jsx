@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { ArrowLeft, History, Paperclip, Plus } from "lucide-react";
 import { StatusBadge } from "../../components/StatusBadge";
-import { currentUser } from "../../data/mockData";
+import { getUser } from "../../auth/api";
 import { logAudit } from "../../auth/audit";
 import { useStore, updateItem } from "../../auth/store";
 
@@ -36,6 +36,7 @@ function SubtaskViewInner({ taskId, subtaskId }) {
   const navigate = useNavigate();
   const tasks = useStore("tasks");
   const reports = useStore("reports");
+  const users = useStore("users");
   const task = tasks.find((t) => t.id === taskId);
 
   const [title, setTitle] = useState(() => task?.subtasks?.find((s) => s.id === subtaskId)?.title || "");
@@ -45,13 +46,33 @@ function SubtaskViewInner({ taskId, subtaskId }) {
   const [status, setStatus] = useState(
     () => task?.subtasks?.find((s) => s.id === subtaskId)?.status || "Not Started"
   );
+  const [assigneeId, setAssigneeId] = useState(
+    () => task?.subtasks?.find((s) => s.id === subtaskId)?.assigneeId || ""
+  );
   const [saved, setSaved] = useState(false);
-  const [editLog, setEditLog] = useState([]);
+  const logKey = `meditrans_editlog_${taskId}_${subtaskId}`;
+  const [editLog, setEditLog] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(logKey) || "[]").map((e) => ({
+        ...e,
+        date: new Date(e.date),
+      }));
+    } catch {
+      return [];
+    }
+  });
   const [lastSaved, setLastSaved] = useState({
     title: task?.subtasks?.find((s) => s.id === subtaskId)?.title || "",
     description: task?.subtasks?.find((s) => s.id === subtaskId)?.description || "",
     status: task?.subtasks?.find((s) => s.id === subtaskId)?.status || "Not Started",
+    assigneeId: task?.subtasks?.find((s) => s.id === subtaskId)?.assigneeId || "",
   });
+
+  useEffect(() => {
+    if (logKey) {
+      localStorage.setItem(logKey, JSON.stringify(editLog));
+    }
+  }, [logKey, editLog]);
 
   if (!task) {
     return (
@@ -72,6 +93,38 @@ function SubtaskViewInner({ taskId, subtaskId }) {
 
   const linkedReports = reports.filter((r) => r.subtaskId === subtaskId);
 
+  const taskAssigneeIds = (task.assignees || []).map(Number);
+  const assigneeCandidates = taskAssigneeIds.length
+    ? taskAssigneeIds
+        .map((uid) => users.find((u) => u.id === uid))
+        .filter((u) => u && u.role === "Member Project")
+    : [];
+  const assigneeName = assigneeId
+    ? users.find((u) => u.id === Number(assigneeId))?.name
+    : null;
+
+  async function handleStatusChange(e) {
+    const nextStatus = e.target.value;
+    const nextSubtask = { ...subtask, status: nextStatus };
+    await updateItem("tasks", `/tasks/${taskId}`, {
+      ...task,
+      subtasks: task.subtasks.map((s) => (s.id === subtaskId ? nextSubtask : s)),
+    });
+    setStatus(nextStatus);
+    setSaved(true);
+    setEditLog((log) => [
+      {
+        id: Date.now(),
+        date: new Date(),
+        editedBy: getUser()?.name || "-",
+        changes: [{ label: "Status", detail: `${status} → ${nextStatus}` }],
+      },
+      ...log,
+    ]);
+    setLastSaved((prev) => ({ ...prev, title, description, status: nextStatus }));
+    logAudit("Edit Subtask", `Status ${title} diubah menjadi ${nextStatus}`);
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     const changes = [];
@@ -84,18 +137,23 @@ function SubtaskViewInner({ taskId, subtaskId }) {
     if (lastSaved.description !== description) {
       changes.push({ label: "Deskripsi", detail: "diperbarui" });
     }
+    if (Number(lastSaved.assigneeId || 0) !== Number(assigneeId || 0)) {
+      changes.push({ label: "Assignee", detail: `${assigneeName || "Belum diassign"}` });
+    }
 
     await updateItem("tasks", `/tasks/${taskId}`, {
       ...task,
-      subtasks: task.subtasks.map((s) => (s.id === subtaskId ? { ...s, title, description, status } : s)),
+      subtasks: task.subtasks.map((s) =>
+        s.id === subtaskId ? { ...s, title, description, status, assigneeId: Number(assigneeId) || null } : s
+      ),
     });
 
     setSaved(true);
     setEditLog((log) => [
-      { id: Date.now(), date: new Date(), editedBy: currentUser.name, changes },
+      { id: Date.now(), date: new Date(), editedBy: getUser()?.name || "-", changes },
       ...log,
     ]);
-    setLastSaved({ title, description, status });
+    setLastSaved({ title, description, status, assigneeId: Number(assigneeId) || null });
     logAudit("Edit Subtask", `${title} di task ${task.title} (${changes.map((c) => c.label).join(", ") || "no change"})`);
   }
 
@@ -109,15 +167,20 @@ function SubtaskViewInner({ taskId, subtaskId }) {
         Back to {task.title}
       </Link>
 
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
-            SUBTASK • {task.title}
-          </p>
-          <h2 className="mt-1 text-2xl font-bold text-navy">{title}</h2>
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
+              SUBTASK • {task.title}
+            </p>
+            <h2 className="mt-1 text-2xl font-bold text-navy">{title}</h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md border border-gray-300 px-3 py-1 text-xs font-bold text-gray-600">
+              {assigneeName ? `Assigned: ${assigneeName}` : "Belum diassign"}
+            </span>
+            <StatusBadge status={status} />
+          </div>
         </div>
-        <StatusBadge status={status} />
-      </div>
 
       <form onSubmit={handleSubmit} className="rounded-2xl border border-navy/20 bg-white p-6 shadow-card">
         <label className="mb-1.5 block text-sm font-bold text-gray-800">Judul Subtask</label>
@@ -138,10 +201,25 @@ function SubtaskViewInner({ taskId, subtaskId }) {
 
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
+            <label className="mb-1.5 block text-sm font-bold text-gray-800">Assign ke</label>
+            <select
+              value={assigneeId}
+              onChange={(e) => setAssigneeId(e.target.value)}
+              className="w-44 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 outline-none focus:border-navy"
+            >
+              <option value="">Belum diassign</option>
+              {assigneeCandidates.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label className="mb-1.5 block text-sm font-bold text-gray-800">Status</label>
             <select
               value={status}
-              onChange={(e) => setStatus(e.target.value)}
+              onChange={handleStatusChange}
               className={`w-44 rounded-lg border px-3 py-2 text-sm font-bold outline-none ${STATUS_SELECT_STYLE[status]}`}
             >
               {STATUS_OPTIONS.map((s) => (

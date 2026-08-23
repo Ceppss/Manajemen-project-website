@@ -4,13 +4,17 @@ import {
   ArrowRight,
   CalendarDays,
   ClipboardList,
+  FileCheck2,
+  FileWarning,
   FolderKanban,
   PlayCircle,
   Truck,
 } from "lucide-react";
 import DonutChart from "../../components/DonutChart";
-import { currentUser } from "../../data/mockData";
-import { useStore, statusSegments, taskStatusSegments, getDueSoon } from "../../auth/store";
+import { useStore, statusSegments, taskStatusSegments, getDueSoon, isTaskOverdue } from "../../auth/store";
+import { getRole, isAdmin, isLead, canSubmitReport } from "../../auth/role";
+import { getUser } from "../../auth/api";
+import { visibleProjectsFor, visibleTasksFor } from "../../auth/visibility";
 const LEGEND_COLORS = { gray: "#D9D9D9", amber: "#F5A623", emerald: "#2FBF71", red: "#EB5757" };
 const DUE_DOT = { overdue: "#EB5757", finished: "#2FBF71", ongoing: "#F5A623" };
 
@@ -37,19 +41,56 @@ export default function OverviewView() {
   const navigate = useNavigate();
   const projects = useStore("projects");
   const tasks = useStore("tasks");
+  const reports = useStore("reports");
+
+  const role = getRole();
+  const me = getUser();
+  const myId = Number(me?.id);
+  const myName = me?.name || "-";
+
+  const visibleProjects = visibleProjectsFor(role, myId, projects);
+  const visibleTasks = visibleTasksFor(role, myId, tasks, projects);
+
+  const allSubtasks = visibleTasks.flatMap((t) => (t.subtasks || []).map((s) => ({ ...s, taskId: t.id })));
+  const visibleSubtasks = isAdmin(role) || isLead(role)
+    ? allSubtasks
+    : allSubtasks.filter((s) => Number(s.assigneeId) === myId);
+  const taskUnits = [...visibleTasks, ...visibleSubtasks];
+
+  const roleKpi = isLead(role)
+    ? {
+        label: "Reports to Approve",
+        value: reports.filter((r) => r.status === "Review").length,
+        icon: FileCheck2,
+        iconClass: "bg-emerald-50 text-emerald-600",
+      }
+    : canSubmitReport(role)
+      ? {
+          label: "Files Need Revision",
+          value: reports.filter((r) => r.status === "Revision").length,
+          icon: FileWarning,
+          iconClass: "bg-red-50 text-red-500",
+        }
+      : null;
 
   const kpis = [
-    { label: "Total Projects", value: projects.length, icon: FolderKanban, iconClass: "bg-navy/10 text-navy" },
-    { label: "Total Tasks", value: tasks.length, icon: ClipboardList, iconClass: "bg-blue-50 text-blue-600" },
+    ...(roleKpi ? [roleKpi] : []),
+    { label: "Total Projects", value: visibleProjects.length, icon: FolderKanban, iconClass: "bg-navy/10 text-navy" },
+    {
+      label: "Total Tasks",
+      value: taskUnits.filter((t) => t.status !== "Finished").length,
+      icon: ClipboardList,
+      iconClass: "bg-blue-50 text-blue-600",
+    },
     {
       label: "On Going",
-      value: tasks.filter((t) => t.status === "On going").length,
+      value: taskUnits.filter((t) => t.status === "On going").length,
       icon: PlayCircle,
       iconClass: "bg-amber-50 text-amber-500",
     },
     {
       label: "Overdue",
-      value: tasks.filter((t) => t.dueColor === "overdue").length,
+      value: visibleTasks.filter(isTaskOverdue).length,
       icon: AlertTriangle,
       iconClass: "bg-red-50 text-red-500",
     },
@@ -58,7 +99,7 @@ export default function OverviewView() {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-navy">Good morning, {currentUser.name}</h2>
+        <h2 className="text-2xl font-bold text-navy">Good morning, {myName}</h2>
         <p className="mt-1 text-sm text-gray-400">
           {new Date().toLocaleDateString("en-US", {
             weekday: "long",
@@ -69,7 +110,7 @@ export default function OverviewView() {
         </p>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-6 xl:grid-cols-4">
+      <div className={`mb-6 grid grid-cols-2 gap-6 ${roleKpi ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
         {kpis.map((k) => (
           <div key={k.label} className="flex items-center gap-4 rounded-2xl border border-navy/20 bg-white p-5 shadow-card">
             <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${k.iconClass}`}>
@@ -84,8 +125,8 @@ export default function OverviewView() {
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <OverviewDonut title="Project Overview" segments={statusSegments(projects)} />
-        <OverviewDonut title="Assignment Overview" segments={taskStatusSegments(tasks)} />
+        <OverviewDonut title="Project Overview" segments={statusSegments(visibleProjects)} />
+        <OverviewDonut title="Assignment Overview" segments={taskStatusSegments(taskUnits.filter((t) => t.status !== "Finished"))} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -100,12 +141,12 @@ export default function OverviewView() {
             </button>
           </div>
           <ul className="space-y-3">
-            {getDueSoon(tasks).length === 0 && (
+            {getDueSoon(visibleTasks).length === 0 && (
               <p className="rounded-lg bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">
                 Belum ada task dengan deadline.
               </p>
             )}
-            {getDueSoon(tasks).map((d) => (
+            {getDueSoon(visibleTasks).map((d) => (
               <li key={d.id}>
                 <button
                   onClick={() => navigate(`/assignment/edit-task/${d.id}`)}

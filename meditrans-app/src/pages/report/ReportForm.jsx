@@ -1,7 +1,10 @@
 import { useState } from "react";
-import { ImagePlus, MapPin, Paperclip } from "lucide-react";
+import { ImagePlus, MapPin, Paperclip, X } from "lucide-react";
 import exifr from "exifr";
 import { useStore, useLeads } from "../../auth/store";
+import { parseMediaList, readFileAsDataUrl, resizeImage, openDataUrl } from "../../auth/media";
+
+const PRIORITY_OPTIONS = ["Not Urgent", "Middle", "Urgent"];
 
 const inputClass =
   "w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 outline-none transition-colors focus:border-navy";
@@ -34,13 +37,12 @@ export default function ReportForm({ isProject, initial, submitLabel = "Submit R
   }
   const [title, setTitle] = useState(initial?.title || "");
   const [description, setDescription] = useState(initial?.description || "");
-  const [photoName, setPhotoName] = useState(initial?.photo && initial.photo !== "-" ? initial.photo : "");
-  const [photoPreview, setPhotoPreview] = useState("");
+  const [priority, setPriority] = useState(initial?.priority || "Middle");
+  const [photos, setPhotos] = useState(parseMediaList(initial?.photo));
+  const [attachments, setAttachments] = useState(parseMediaList(initial?.attachment));
   const [gps, setGps] = useState(initial?.gps || null);
   const [gpsReading, setGpsReading] = useState(false);
-  const [attachment, setAttachment] = useState(
-    initial?.attachment && initial.attachment !== "-" ? initial.attachment : ""
-  );
+  const [error, setError] = useState("");
 
   const resolved = initial ? resolveIds(initial) : { projectId: "", taskId: "", leadIds: [] };
   const [projectId, setProjectId] = useState(resolved.projectId);
@@ -54,32 +56,64 @@ export default function ReportForm({ isProject, initial, submitLabel = "Submit R
   }
 
   async function handlePhoto(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPhotoName(file.name);
-    setPhotoPreview(URL.createObjectURL(file));
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    const newPhotos = await Promise.all(
+      files.map(async (file) => ({ name: file.name, data: await resizeImage(file) }))
+    );
+    setPhotos((list) => [...list, ...newPhotos]);
     if (isProject) return;
     setGpsReading(true);
-    setGps(null);
     try {
-      const gpsData = await exifr.gps(file);
-      if (gpsData?.latitude && gpsData?.longitude) {
-        setGps({ lat: gpsData.latitude, lng: gpsData.longitude });
+      for (const file of files) {
+        const gpsData = await exifr.gps(file).catch(() => null);
+        if (gpsData?.latitude && gpsData?.longitude) {
+          setGps({ lat: gpsData.latitude, lng: gpsData.longitude });
+          break;
+        }
       }
-    } catch {
-      // foto tanpa metadata GPS → biarkan null
     } finally {
       setGpsReading(false);
     }
   }
 
+  function removePhoto(index) {
+    setPhotos((list) => list.filter((_, i) => i !== index));
+  }
+
+  async function handleAttachment(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    const oversized = files.find((f) => f.size > 8 * 1024 * 1024);
+    if (oversized) {
+      setError(`"${oversized.name}" melebihi 8MB.`);
+      return;
+    }
+    const newAttachments = await Promise.all(
+      files.map(async (file) => ({ name: file.name, data: await readFileAsDataUrl(file) }))
+    );
+    setAttachments((list) => [...list, ...newAttachments]);
+  }
+
+  function removeAttachment(index) {
+    setAttachments((list) => list.filter((_, i) => i !== index));
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
+    if (isProject && leadIds.length === 0) {
+      setError("Pilih minimal satu lead project untuk approval.");
+      return;
+    }
+    setError("");
     onSubmit({
       title,
       description,
-      photo: photoName || "-",
-      attachment: attachment || "-",
+      priority,
+      photo: photos.length > 0 ? JSON.stringify(photos) : "-",
+      attachment: attachments.length > 0 ? JSON.stringify(attachments) : "-",
       projectId,
       taskId,
       leadIds,
@@ -118,11 +152,30 @@ export default function ReportForm({ isProject, initial, submitLabel = "Submit R
           <label className="mb-1.5 block text-sm font-semibold text-gray-700">Foto</label>
           <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 text-sm font-semibold text-gray-500 hover:border-navy hover:text-navy">
             <ImagePlus className="h-4 w-4" />
-            {photoName || "Upload foto"}
-            <input type="file" accept="image/*" onChange={handlePhoto} className="hidden" />
+            {photos.length > 0 ? `${photos.length} foto dipilih` : "Upload foto"}
+            <input type="file" accept="image/*" multiple onChange={handlePhoto} className="hidden" />
           </label>
-          {photoPreview && (
-            <img src={photoPreview} alt="preview" className="mt-2 h-28 w-full rounded-lg object-cover" />
+          {photos.length > 0 && (
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {photos.map((p, i) => (
+                <div key={i} className="group relative">
+                  <img
+                    src={p.data}
+                    alt={p.name}
+                    className="h-20 w-full cursor-pointer rounded-lg object-cover"
+                    onClick={() => openDataUrl(p.data)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(i)}
+                    aria-label="Hapus foto"
+                    className="absolute -right-1.5 -top-1.5 rounded-full bg-red-500 p-0.5 text-white shadow hover:bg-red-600"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
           {!isProject && gpsReading && (
             <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-gray-400">
@@ -141,7 +194,7 @@ export default function ReportForm({ isProject, initial, submitLabel = "Submit R
               GPS: {gps.lat.toFixed(5)}, {gps.lng.toFixed(5)} — Buka Maps
             </a>
           )}
-          {!isProject && !gpsReading && !gps && photoName && (
+          {!isProject && !gpsReading && !gps && photos.length > 0 && (
             <p className="mt-2 text-xs font-semibold text-gray-400">Tidak ada data GPS di foto ini.</p>
           )}
         </div>
@@ -150,18 +203,56 @@ export default function ReportForm({ isProject, initial, submitLabel = "Submit R
           <label className="mb-1.5 block text-sm font-semibold text-gray-700">Attachment</label>
           <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 text-sm font-semibold text-gray-500 hover:border-navy hover:text-navy">
             <Paperclip className="h-4 w-4" />
-            {attachment || "Upload file"}
-            <input
-              type="file"
-              onChange={(e) => setAttachment(e.target.files?.[0]?.name || "")}
-              className="hidden"
-            />
+            {attachments.length > 0 ? `${attachments.length} file dipilih` : "Upload file"}
+            <input type="file" multiple onChange={handleAttachment} className="hidden" />
           </label>
+          {attachments.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              {attachments.map((a, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-1.5 rounded-md bg-navy/5 px-2.5 py-1 text-xs font-bold text-navy"
+                >
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  <button
+                    type="button"
+                    onClick={() => openDataUrl(a.data)}
+                    className="min-w-0 flex-1 truncate text-left hover:underline"
+                  >
+                    {a.name}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(i)}
+                    aria-label="Hapus attachment"
+                    className="shrink-0 text-navy/60 hover:text-red-600"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
       {isProject && (
         <div className="space-y-5 rounded-xl bg-gray-50 p-5">
+          <div>
+            <label className="mb-1.5 block text-sm font-semibold text-gray-700">Priority</label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              className={inputClass}
+            >
+              {PRIORITY_OPTIONS.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-gray-700">Terhubung ke Project</label>
             <select
@@ -240,6 +331,8 @@ export default function ReportForm({ isProject, initial, submitLabel = "Submit R
           </div>
         </div>
       )}
+
+      {error && <p className="text-xs font-medium text-red-500">{error}</p>}
 
       <div className="flex justify-end gap-3 border-t border-gray-100 pt-5">
         <button

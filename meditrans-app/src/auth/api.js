@@ -41,6 +41,24 @@ export function setProfile(userId, profile) {
   localStorage.setItem(`meditrans_profile_${userId}`, JSON.stringify(profile));
 }
 
+export async function updateProfile(payload) {
+  return api("/auth/profile", { method: "PUT", body: JSON.stringify(payload) });
+}
+
+// ---------- Notifications ----------
+
+export async function getNotifications() {
+  return api("/notifications");
+}
+
+export async function markNotificationRead(id) {
+  return api(`/notifications/${id}/read`, { method: "PUT" });
+}
+
+export async function markAllNotificationsRead() {
+  return api("/notifications/read-all", { method: "PUT" });
+}
+
 export async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const token = getToken();

@@ -20,6 +20,11 @@ import ReportDetail from "./pages/report/ReportDetail";
 import AdminProject from "./pages/admin/AdminProject";
 import AdminEmployees from "./pages/admin/AdminEmployees";
 import AdminAudit from "./pages/admin/AdminAudit";
+import { getRole, canSeeDailyReport } from "./auth/role";
+
+function ReportIndex() {
+  return <Navigate to={canSeeDailyReport(getRole()) ? "/report/daily" : "/report/project"} replace />;
+}
 
 export default function App() {
   return (
@@ -43,7 +48,7 @@ export default function App() {
         <Route path="/assignment/subtask/:taskId/:subtaskId" element={<SubtaskView />} />
 
         <Route path="/report" element={<Report />}>
-          <Route index element={<Navigate to="/report/daily" replace />} />
+          <Route index element={<ReportIndex />} />
           <Route path="daily" element={<DailyReport />} />
           <Route path="project" element={<ProjectReport />} />
           <Route path="add" element={<AddReport />} />

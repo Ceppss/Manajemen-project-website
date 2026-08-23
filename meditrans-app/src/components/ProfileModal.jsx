@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Camera, Lock, X } from "lucide-react";
 import { currentUser } from "../data/mockData";
 import { getRole } from "../auth/role";
-import { getUser, getProfile, setProfile } from "../auth/api";
+import { getUser, getProfile, setProfile, setUser, setToken, updateProfile } from "../auth/api";
+import { updateUserInStore } from "../auth/store";
 
 function initialsOf(name) {
   return name
@@ -43,9 +44,11 @@ export default function ProfileModal({ onClose }) {
 
   function handleSubmit(e) {
     e.preventDefault();
+    setError("");
     setSaved(false);
 
-    if (newPassword || confirmPassword || currentPassword) {
+    const changingPassword = Boolean(newPassword || confirmPassword || currentPassword);
+    if (changingPassword) {
       if (!currentPassword) {
         setError("Masukkan password saat ini untuk mengubah password.");
         return;
@@ -60,11 +63,27 @@ export default function ProfileModal({ onClose }) {
       }
     }
 
-    setError("");
-    if (sessionUser?.id) {
-      setProfile(sessionUser.id, { name: name.trim(), photo });
-    }
-    setSaved(true);
+    (async () => {
+      try {
+        const { token, user } = await updateProfile({
+          name: name.trim(),
+          currentPassword: changingPassword ? currentPassword : undefined,
+          newPassword: changingPassword ? newPassword : undefined,
+        });
+        if (token) setToken(token);
+        if (sessionUser?.id) {
+          setUser({ ...sessionUser, ...user });
+          setProfile(sessionUser.id, { name: user.name, photo });
+          updateUserInStore(user);
+        }
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+        setSaved(true);
+      } catch (err) {
+        setError(err.message);
+      }
+    })();
   }
 
   return (

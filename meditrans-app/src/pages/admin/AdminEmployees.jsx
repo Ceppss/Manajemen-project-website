@@ -121,8 +121,7 @@ export default function AdminEmployees() {
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-navy">Admin - Karyawan</h2>
-          <p className="mt-0.5 text-sm text-gray-400">Data karyawan perusahaan beserta role dan kontaknya.</p>
+          <h2 className="text-xl font-bold text-navy">Karyawan</h2>
         </div>
         <button
           onClick={openAdd}

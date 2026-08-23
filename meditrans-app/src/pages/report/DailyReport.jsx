@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import FilterableHeader from "../../components/FilterableHeader";
 import { StatusBadge } from "../../components/StatusBadge";
 import { useStore } from "../../auth/store";
+import { getRole, canSeeDailyReport } from "../../auth/role";
 
 const STATUS_OPTIONS = ["Review", "Approve", "Revision"];
 
@@ -23,6 +24,20 @@ export default function DailyReport() {
       ),
     [query, statusFilter, dailyReports]
   );
+
+  if (!canSeeDailyReport(getRole())) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-400">
+        Daily report hanya bisa dilihat oleh member dan lead project.
+        <button
+          onClick={() => navigate("/report/project")}
+          className="mt-3 block w-full rounded-lg bg-navy px-4 py-2 text-xs font-semibold text-white hover:bg-navy-dark"
+        >
+          Lihat Project Report
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div>

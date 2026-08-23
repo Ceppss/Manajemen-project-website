@@ -19,6 +19,18 @@ export function canSubmitReport(role) {
   return role === "Member Project";
 }
 
+export function canSeeDailyReport(role) {
+  return role === "Member Project" || role === "Lead Project";
+}
+
 export function canManageProject(role) {
   return role === "Lead Project";
+}
+
+export function canAssignTask(role) {
+  return role === "Lead Project" || role === "Member Project";
+}
+
+export function assignableRoles(role) {
+  return role === "Lead Project" ? ["Lead Project", "Member Project"] : ["Member Project"];
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -11,16 +11,24 @@ import {
   Users,
 } from "lucide-react";
 import { StatusBadge, PriorityBadge } from "../../components/StatusBadge";
-import { currentUser } from "../../data/mockData";
+import { getUser } from "../../auth/api";
 import { logAudit } from "../../auth/audit";
 import { useStore, updateItem } from "../../auth/store";
 
 const STATUS_OPTIONS = ["Not Started", "On going", "Finished"];
 
+const PRIORITY_OPTIONS = ["Not Urgent", "Middle", "Urgent"];
+
 const STATUS_SELECT_STYLE = {
   "Not Started": "border-gray-300 bg-gray-100 text-gray-600",
   "On going": "border-amber-300 bg-amber-100 text-amber-700",
   Finished: "border-emerald-300 bg-emerald-100 text-emerald-700",
+};
+
+const PRIORITY_SELECT_STYLE = {
+  "Not Urgent": "border-emerald-300 bg-emerald-100 text-emerald-700",
+  Middle: "border-amber-300 bg-amber-100 text-amber-700",
+  Urgent: "border-red-300 bg-red-100 text-red-700",
 };
 
 const inputClass =
@@ -57,19 +65,38 @@ function EditTaskInner({ id }) {
   const [title, setTitle] = useState(original?.title || "");
   const [description, setDescription] = useState(original?.description || "");
   const [status, setStatus] = useState(original?.status || "Not Started");
+  const [priority, setPriority] = useState(original?.priority || "Middle");
   const [subtasks, setSubtasks] = useState(original?.subtasks || []);
   const [showSubtaskForm, setShowSubtaskForm] = useState(false);
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [subtaskDescription, setSubtaskDescription] = useState("");
+  const [subtaskAssignee, setSubtaskAssignee] = useState("");
   const [saved, setSaved] = useState(false);
-  const [editLog, setEditLog] = useState([]);
+  const logKey = `meditrans_editlog_${id}`;
+  const [editLog, setEditLog] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(logKey) || "[]").map((e) => ({
+        ...e,
+        date: new Date(e.date),
+      }));
+    } catch {
+      return [];
+    }
+  });
 
   const [lastSaved, setLastSaved] = useState({
     title: original?.title || "",
     description: original?.description || "",
     status: original?.status || "Not Started",
+    priority: original?.priority || "Middle",
     subtaskTitles: (original?.subtasks || []).map((s) => s.title).join("|"),
   });
+
+  useEffect(() => {
+    if (logKey) {
+      localStorage.setItem(logKey, JSON.stringify(editLog));
+    }
+  }, [logKey, editLog]);
 
   if (!original) {
     return (
@@ -86,36 +113,68 @@ function EditTaskInner({ id }) {
 
   const linkedReports = connectedReports(original, reports);
   const assigneesText = (original.assignees || [])
-    .map((aid) => users.find((u) => u.id === aid)?.name || aid)
+    .map((aid) => users.find((u) => u.id === Number(aid))?.name || aid)
     .join(", ");
   const project = original.projectId ? projects.find((p) => p.id === original.projectId) : null;
   const finishedCount = subtasks.filter((s) => s.status === "Finished").length;
 
+  const taskAssigneeIds = (original.assignees || []).map(Number);
+  const subtaskCandidates = taskAssigneeIds.length
+    ? users.filter((u) => taskAssigneeIds.includes(u.id) && u.role === "Member Project")
+    : [];
+
   function openSubtaskForm() {
     setSubtaskTitle("");
     setSubtaskDescription("");
+    setSubtaskAssignee("");
     setShowSubtaskForm(true);
+  }
+
+  async function persistSubtasks(nextSubtasks, changeLabel) {
+    const current = tasks.find((t) => t.id === original.id);
+    await updateItem("tasks", `/tasks/${original.id}`, {
+      ...current,
+      subtasks: nextSubtasks,
+    });
+    if (changeLabel) {
+      setEditLog((log) => [
+        {
+          id: Date.now(),
+          date: new Date(),
+          editedBy: getUser()?.name || "-",
+          changes: [{ label: "Subtask", detail: changeLabel }],
+        },
+        ...log,
+      ]);
+    }
+    setLastSaved((ls) => ({ ...ls, subtaskTitles: nextSubtasks.map((s) => s.title).join("|") }));
   }
 
   function addSubtask() {
     if (!subtaskTitle.trim()) return;
-    setSubtasks((list) => [
-      ...list,
+    const next = [
+      ...subtasks,
       {
         id: `st-${Date.now()}`,
         title: subtaskTitle.trim(),
         description: subtaskDescription.trim(),
         status: "Not Started",
+        assigneeId: Number(subtaskAssignee) || null,
       },
-    ]);
+    ];
+    setSubtasks(next);
+    persistSubtasks(next, `${subtaskTitle.trim()} ditambahkan`);
     setShowSubtaskForm(false);
     setSubtaskTitle("");
     setSubtaskDescription("");
+    setSubtaskAssignee("");
     logAudit("Add Subtask", `${subtaskTitle.trim()} ditambahkan ke ${original.title}`);
   }
 
   function removeSubtask(stId) {
-    setSubtasks((list) => list.filter((st) => st.id !== stId));
+    const next = subtasks.filter((st) => st.id !== stId);
+    setSubtasks(next);
+    persistSubtasks(next, "1 subtask dihapus");
   }
 
   function buildChanges() {
@@ -123,6 +182,9 @@ function EditTaskInner({ id }) {
 
     if (lastSaved.status !== status) {
       changes.push({ label: "Status", detail: `${lastSaved.status} → ${status}` });
+    }
+    if (lastSaved.priority !== priority) {
+      changes.push({ label: "Priority", detail: `${lastSaved.priority} → ${priority}` });
     }
     if (lastSaved.title !== title) {
       changes.push({ label: "Judul", detail: "diperbarui" });
@@ -149,19 +211,21 @@ function EditTaskInner({ id }) {
       title,
       description,
       status,
+      priority,
       subtasks,
     });
     logAudit("Edit Task", `${original.id} - ${title} (${changes.map((c) => c.label).join(", ") || "no change"})`);
 
     setSaved(true);
     setEditLog((log) => [
-      { id: Date.now(), date: new Date(), editedBy: currentUser.name, changes },
+      { id: Date.now(), date: new Date(), editedBy: getUser()?.name || "-", changes },
       ...log,
     ]);
     setLastSaved({
       title,
       description,
       status,
+      priority,
       subtaskTitles: subtasks.map((s) => s.title).join("|"),
     });
   }
@@ -184,7 +248,7 @@ function EditTaskInner({ id }) {
           <h2 className="mt-1 text-2xl font-bold text-navy">{title}</h2>
         </div>
         <div className="flex items-center gap-2">
-          <PriorityBadge priority={original.priority} />
+          <PriorityBadge priority={priority} />
           <StatusBadge status={status} />
         </div>
       </div>
@@ -209,6 +273,20 @@ function EditTaskInner({ id }) {
             />
 
             <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-bold text-gray-800">Priority</label>
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                  className={`w-44 rounded-lg border px-3 py-2 text-sm font-bold outline-none ${PRIORITY_SELECT_STYLE[priority]}`}
+                >
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="mb-1.5 block text-sm font-bold text-gray-800">Status</label>
                 <select
@@ -279,6 +357,23 @@ function EditTaskInner({ id }) {
                     className={`${inputClass} resize-none`}
                   />
                 </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-gray-500">
+                    Assign ke <span className="font-normal text-gray-400">(opsional)</span>
+                  </label>
+                  <select
+                    value={subtaskAssignee}
+                    onChange={(e) => setSubtaskAssignee(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Belum diassign</option>
+                    {subtaskCandidates.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
@@ -310,6 +405,9 @@ function EditTaskInner({ id }) {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-gray-700">{st.title}</p>
                     {st.description && <p className="mt-0.5 truncate text-xs text-gray-400">{st.description}</p>}
+                    <p className="mt-0.5 text-[11px] font-semibold text-gray-500">
+                      {st.assigneeId ? `Assigned: ${users.find((u) => u.id === Number(st.assigneeId))?.name || "-"}` : "Belum diassign"}
+                    </p>
                   </div>
                   <StatusBadge status={st.status} />
                   <button

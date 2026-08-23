@@ -1,7 +1,11 @@
 import { useNavigate } from "react-router-dom";
 import DonutChart from "../../components/DonutChart";
 import { useStore, taskStatusSegments, getDueSoon } from "../../auth/store";
+import { getRole, canAssignTask } from "../../auth/role";
+import { getUser } from "../../auth/api";
+import { visibleTasksFor } from "../../auth/visibility";
 import TaskBoard from "./TaskBoard";
+import SubtaskBoard from "./SubtaskBoard";
 
 const DUE_DOT = {
   overdue: "#EB5757",
@@ -12,32 +16,38 @@ const DUE_DOT = {
 export default function AssignmentList() {
   const navigate = useNavigate();
   const tasks = useStore("tasks");
-  const dueSoon = getDueSoon(tasks);
+  const projects = useStore("projects");
+
+  const role = getRole();
+  const me = getUser();
+  const myId = Number(me?.id);
+
+  const visibleTasks = visibleTasksFor(role, myId, tasks, projects);
+  const dueSoon = getDueSoon(visibleTasks);
 
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-navy">Task</h2>
-          <p className="mt-0.5 text-sm text-gray-400">
-            Semua task, terhubung project maupun task individu.
-          </p>
         </div>
-        <button
-          onClick={() => navigate("/assignment/add-task")}
-          className="rounded-lg bg-navy px-5 py-2.5 text-sm font-semibold text-white hover:bg-navy-dark"
-        >
-          Add task
-        </button>
+        {canAssignTask(getRole()) && (
+          <button
+            onClick={() => navigate("/assignment/add-task")}
+            className="rounded-lg bg-navy px-5 py-2.5 text-sm font-semibold text-white hover:bg-navy-dark"
+          >
+            Add task
+          </button>
+        )}
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-navy/20 bg-white p-6 shadow-card">
           <h3 className="mb-4 text-center text-base font-bold text-navy">Assignment Overview</h3>
           <div className="flex items-center justify-center gap-8">
-            <DonutChart segments={taskStatusSegments(tasks)} size={170} strokeWidth={20} />
+            <DonutChart segments={taskStatusSegments(visibleTasks)} size={170} strokeWidth={20} />
             <ul className="space-y-2">
-              {taskStatusSegments(tasks).map((seg) => (
+              {taskStatusSegments(visibleTasks).map((seg) => (
                 <li key={seg.label} className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                   <span
                     className="h-3.5 w-3.5 rounded-sm"
@@ -77,7 +87,12 @@ export default function AssignmentList() {
         </div>
       </div>
 
-      <TaskBoard tasks={tasks} />
+      <TaskBoard tasks={visibleTasks} />
+
+      <div className="mt-8">
+        <h3 className="mb-4 text-base font-bold text-navy">Subtask Board</h3>
+        <SubtaskBoard tasks={visibleTasks} />
+      </div>
     </div>
   );
 }

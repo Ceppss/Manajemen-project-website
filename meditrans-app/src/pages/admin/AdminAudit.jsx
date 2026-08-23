@@ -55,10 +55,8 @@ export default function AdminAudit() {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-xl font-bold text-navy">Admin - Audit Log</h2>
-        <p className="mt-0.5 text-sm text-gray-400">
-          Riwayat aktivitas: siapa mengubah, menambah, atau meng-assign di seluruh aplikasi.
-        </p>
+        <h2 className="text-xl font-bold text-navy">Audit Log</h2>
+
       </div>
 
       <div className="mb-4 flex items-center gap-2 rounded-full bg-white px-4 py-2.5 shadow-card sm:w-80">

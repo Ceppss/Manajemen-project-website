@@ -7,7 +7,7 @@ router.use(auth);
 
 const toProject = (r) => ({
   id: r.id, name: r.name, description: r.description, status: r.status, progress: r.progress,
-  totalTasks: r.total_tasks, doneTasks: r.done_tasks, deadline: r.deadline,
+  totalTasks: r.total_tasks, doneTasks: r.done_tasks, startDate: r.start_date, deadline: r.deadline,
   pjId: r.pj_id, leadIds: parseJson(r.lead_ids, []), memberIds: parseJson(r.member_ids, []),
 });
 
@@ -16,15 +16,15 @@ router.get("/", (req, res) => {
 });
 
 router.post("/", requireRole("Superadmin"), (req, res) => {
-  const { name, description, pjId } = req.body || {};
+  const { name, description, pjId, startDate, deadline } = req.body || {};
   if (!name || !pjId) {
     return res.status(400).json({ message: "Nama project dan PJ wajib diisi" });
   }
   const id = `proj-${Date.now()}`;
   db.prepare(`
-    INSERT INTO projects (id, name, description, status, progress, total_tasks, done_tasks, deadline, pj_id, lead_ids, member_ids)
-    VALUES (?, ?, ?, 'Not Started', 0, 0, 0, '-', ?, '[]', '[]')
-  `).run(id, name.trim(), (description || "").trim(), Number(pjId));
+    INSERT INTO projects (id, name, description, status, progress, total_tasks, done_tasks, start_date, deadline, pj_id, lead_ids, member_ids)
+    VALUES (?, ?, ?, 'Not Started', 0, 0, 0, ?, ?, ?, '[]', '[]')
+  `).run(id, name.trim(), (description || "").trim(), startDate || "", deadline || "-", Number(pjId));
   const row = db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
   const pj = db.prepare("SELECT name FROM users WHERE id = ?").get(Number(pjId));
   audit(req.user.name, "Create Project", `${row.name} dibuat dengan PJ ${pj?.name || "-"}`);
@@ -36,9 +36,14 @@ router.put("/:id", (req, res) => {
   if (!row) {
     return res.status(404).json({ message: "Project tidak ditemukan" });
   }
+  const isPj = Number(row.pj_id) === req.user.id;
+  const isProjectLead = parseJson(row.lead_ids, []).includes(req.user.id);
+  if (req.user.role !== "Superadmin" && !isPj && !isProjectLead) {
+    return res.status(403).json({ message: "Kamu tidak punya akses untuk mengubah project ini" });
+  }
   const b = req.body || {};
   db.prepare(`
-    UPDATE projects SET name = ?, description = ?, status = ?, progress = ?, total_tasks = ?, done_tasks = ?, deadline = ?, pj_id = ?, lead_ids = ?, member_ids = ?
+    UPDATE projects SET name = ?, description = ?, status = ?, progress = ?, total_tasks = ?, done_tasks = ?, start_date = ?, deadline = ?, pj_id = ?, lead_ids = ?, member_ids = ?
     WHERE id = ?
   `).run(
     b.name ?? row.name,
@@ -47,6 +52,7 @@ router.put("/:id", (req, res) => {
     b.progress ?? row.progress,
     b.totalTasks ?? row.total_tasks,
     b.doneTasks ?? row.done_tasks,
+    b.startDate ?? row.start_date,
     b.deadline ?? row.deadline,
     b.pjId ?? row.pj_id,
     JSON.stringify(b.leadIds ?? parseJson(row.lead_ids, [])),

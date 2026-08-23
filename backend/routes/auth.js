@@ -1,7 +1,7 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const db = require("../db");
-const { signToken } = require("../middleware");
+const { signToken, auth, audit } = require("../middleware");
 
 const router = express.Router();
 
@@ -15,6 +15,29 @@ router.post("/login", (req, res) => {
     token: signToken(user),
     user: { id: user.id, email: user.email, name: user.name, role: user.role },
   });
+});
+
+router.put("/profile", auth, (req, res) => {
+  const { name, currentPassword, newPassword } = req.body || {};
+  const row = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (!row) {
+    return res.status(404).json({ message: "Akun tidak ditemukan" });
+  }
+  if (newPassword) {
+    if (!currentPassword || !bcrypt.compareSync(currentPassword || "", row.password_hash)) {
+      return res.status(400).json({ message: "Password saat ini salah" });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: "Password baru minimal 8 karakter" });
+    }
+  }
+  const newName = (name || "").trim() || row.name;
+  const hash = newPassword ? bcrypt.hashSync(newPassword, 10) : row.password_hash;
+  db.prepare("UPDATE users SET name = ?, password_hash = ? WHERE id = ?").run(newName, hash, row.id);
+  const updated = db.prepare("SELECT * FROM users WHERE id = ?").get(row.id);
+  audit(updated.name, "Edit Profile", `${updated.name} memperbarui profil${newPassword ? " dan password" : ""}`);
+  const user = { id: updated.id, email: updated.email, name: updated.name, role: updated.role };
+  res.json({ token: signToken(updated), user });
 });
 
 module.exports = router;

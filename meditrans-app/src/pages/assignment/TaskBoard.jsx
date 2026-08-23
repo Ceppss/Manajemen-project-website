@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../../auth/store";
+import { isTaskOverdue } from "../../auth/store";
 
 const COLUMNS = [
   { key: "Not Started", label: "To do List" },
@@ -12,7 +13,7 @@ export default function TaskBoard({ tasks }) {
   const users = useStore("users");
 
   function assigneeNames(ids) {
-    return ids.map((id) => users.find((u) => u.id === id)?.name || id).join(", ");
+    return ids.map((id) => users.find((u) => u.id === Number(id))?.name || id).join(", ");
   }
 
   return (
@@ -25,10 +26,25 @@ export default function TaskBoard({ tasks }) {
             <div className="max-h-[420px] space-y-3 overflow-y-auto">
               {items.length === 0 && <p className="text-center text-xs text-gray-400">Belum ada task.</p>}
               {items.map((t) => (
-                <div key={t.id} className="rounded-lg border border-gray-200 p-4">
-                  <p className="text-sm font-extrabold text-gray-800">TASK #{t.id.replace(/\D/g, "")}</p>
+                <div
+                  key={t.id}
+                  className={`rounded-lg border p-4 ${isTaskOverdue(t) ? "border-red-200 bg-red-50/40" : "border-gray-200"}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-extrabold text-gray-800">{t.title}</p>
+                    {isTaskOverdue(t) && (
+                      <span className="shrink-0 rounded-md border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
+                        Overdue
+                      </span>
+                    )}
+                  </div>
                   <p className="mt-1 text-xs text-gray-500">{t.description}</p>
                   <p className="mt-1 text-[11px] text-gray-400">Assignee: {assigneeNames(t.assignees)}</p>
+                  {t.endDate && (
+                    <p className={`mt-0.5 text-[11px] font-semibold ${isTaskOverdue(t) ? "text-red-600" : "text-gray-400"}`}>
+                      Deadline: {t.endDate}
+                    </p>
+                  )}
                   <button
                     onClick={() => navigate(`/assignment/edit-task/${t.id}`)}
                     className="mt-2 text-xs font-semibold text-blue-600 hover:underline"

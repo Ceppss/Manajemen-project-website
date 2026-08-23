@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { api } from "./api";
+import { getRole, canSeeDailyReport } from "./role";
 
 const RESOURCES = ["users", "projects", "tasks", "reports", "dailyReports"];
 
@@ -39,12 +40,13 @@ export function useLeads() {
 
 export function loadAll() {
   if (!loadPromise) {
+    const dailyPromise = canSeeDailyReport(getRole()) ? api("/daily-reports") : Promise.resolve([]);
     loadPromise = Promise.all([
       api("/users"),
       api("/projects"),
       api("/tasks"),
       api("/reports"),
-      api("/daily-reports"),
+      dailyPromise,
     ])
       .then(([users, projects, tasks, reports, dailyReports]) => {
         setResource("users", users);
@@ -78,13 +80,39 @@ export async function deleteItem(resource, path, id) {
   setResource(resource, state[resource].filter((x) => x.id !== id));
 }
 
+export function updateUserInStore(user) {
+  setResource("users", state.users.map((u) => (u.id === user.id ? { ...u, ...user } : u)));
+}
+
+// ---------- Overdue (computed from real dates) ----------
+
+export function isTaskOverdue(t) {
+  if (!t.endDate || t.status === "Finished") return false;
+  const end = new Date(`${t.endDate}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return end < today;
+}
+
+export function isProjectOverdue(p) {
+  if (!p.deadline || p.deadline === "-" || p.status === "Finished") return false;
+  const d = new Date(`${p.deadline}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return d < today;
+}
+
 // ---------- Overview segments (computed from real data) ----------
 
 export function statusSegments(items, key = "status") {
   const counts = { "Not Started": 0, "On going": 0, Finished: 0, Overdue: 0 };
   items.forEach((it) => {
-    const s = it[key];
-    if (s in counts) counts[s]++;
+    if (isProjectOverdue(it)) {
+      counts.Overdue++;
+    } else {
+      const s = it[key];
+      if (s in counts) counts[s]++;
+    }
   });
   const total = items.length || 1;
   return [
@@ -98,7 +126,7 @@ export function statusSegments(items, key = "status") {
 export function taskStatusSegments(tasks) {
   const counts = { "Not Started": 0, "On going": 0, Finished: 0, Overdue: 0 };
   tasks.forEach((t) => {
-    if (t.dueColor === "overdue" && t.status !== "Finished") {
+    if (isTaskOverdue(t)) {
       counts.Overdue++;
     } else if (t.status in counts) {
       counts[t.status]++;

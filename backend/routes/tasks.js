@@ -1,6 +1,7 @@
 const express = require("express");
 const db = require("../db");
 const { auth, audit, parseJson } = require("../middleware");
+const { notify } = require("../notifications");
 
 const router = express.Router();
 router.use(auth);
@@ -33,6 +34,11 @@ router.post("/", (req, res) => {
   );
   const row = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
   audit(req.user.name, "Add Task", `${row.title} ditambahkan`);
+  for (const assigneeId of b.assignees || []) {
+    if (assigneeId !== req.user.id) {
+      notify(assigneeId, "Task baru untukmu", `${req.user.name} menugaskan kamu ke "${row.title}".`, `/assignment/edit-task/${row.id}`);
+    }
+  }
   res.status(201).json(toTask(row));
 });
 
@@ -42,16 +48,23 @@ router.put("/:id", (req, res) => {
     return res.status(404).json({ message: "Task tidak ditemukan" });
   }
   const b = req.body || {};
+  const prevAssignees = parseJson(row.assignees, []);
+  const nextAssignees = b.assignees ?? prevAssignees;
   db.prepare(`
     UPDATE tasks SET title = ?, description = ?, priority = ?, status = ?, assignees = ?, due_in_days = ?, due_color = ?, start_date = ?, end_date = ?, project_id = ?, type = ?, subtasks = ?
     WHERE id = ?
   `).run(
     b.title ?? row.title, b.description ?? row.description, b.priority ?? row.priority, b.status ?? row.status,
-    JSON.stringify(b.assignees ?? parseJson(row.assignees, [])), b.dueInDays ?? row.due_in_days, b.dueColor ?? row.due_color,
+    JSON.stringify(nextAssignees), b.dueInDays ?? row.due_in_days, b.dueColor ?? row.due_color,
     b.startDate ?? row.start_date, b.endDate ?? row.end_date, b.projectId ?? row.project_id, b.type ?? row.type,
     JSON.stringify(b.subtasks ?? parseJson(row.subtasks, [])), row.id
   );
   const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(row.id);
+  for (const assigneeId of nextAssignees) {
+    if (assigneeId !== req.user.id && !prevAssignees.includes(assigneeId)) {
+      notify(assigneeId, "Task baru untukmu", `${req.user.name} menugaskan kamu ke "${updated.title}".`, `/assignment/edit-task/${updated.id}`);
+    }
+  }
   res.json(toTask(updated));
 });
 

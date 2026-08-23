@@ -1,6 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useStore } from "../../auth/store";
+import { useStore, isTaskOverdue } from "../../auth/store";
+import { getRole } from "../../auth/role";
+import { getUser } from "../../auth/api";
+import { visibleTasksFor } from "../../auth/visibility";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTH_NAMES = [
@@ -9,11 +13,11 @@ const MONTH_NAMES = [
 ];
 const MAX_VISIBLE_TASKS = 2;
 
-const DUE_COLOR = {
-  overdue: "#EB5757",
-  finished: "#2FBF71",
-  ongoing: "#F5A623",
-};
+function chipColor(t) {
+  if (t.status === "Finished") return "#2FBF71";
+  if (isTaskOverdue(t)) return "#EB5757";
+  return "#F5A623";
+}
 
 function buildCalendarGrid(year, month) {
   const firstOfMonth = new Date(year, month, 1);
@@ -36,8 +40,15 @@ function buildCalendarGrid(year, month) {
 }
 
 export default function CalendarView() {
+  const navigate = useNavigate();
   const tasks = useStore("tasks");
+  const projects = useStore("projects");
   const [cursor, setCursor] = useState(new Date());
+
+  const role = getRole();
+  const me = getUser();
+  const myId = Number(me?.id);
+  const visibleTasks = visibleTasksFor(role, myId, tasks, projects);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -45,13 +56,14 @@ export default function CalendarView() {
 
   const tasksByDay = (() => {
     const map = {};
-    tasks.forEach((t) => {
+    visibleTasks.forEach((t) => {
       if (!t.startDate) return;
       const d = new Date(t.startDate);
       if (d.getMonth() === month && d.getFullYear() === year) {
         (map[d.getDate()] ||= []).push({
+          id: t.id,
           title: t.title,
-          color: DUE_COLOR[t.dueColor] || "#D9D9D9",
+          color: chipColor(t),
         });
       }
     });
@@ -101,14 +113,15 @@ export default function CalendarView() {
               {visibleTasks.length > 0 && (
                 <div className="mt-1.5 flex w-full flex-col gap-1">
                   {visibleTasks.map((t, ti) => (
-                    <span
+                    <button
                       key={ti}
+                      onClick={() => navigate(`/assignment/edit-task/${t.id}`)}
                       title={t.title}
-                      className="truncate rounded px-1.5 py-0.5 text-left text-[10px] font-semibold text-white"
+                      className="truncate rounded px-1.5 py-0.5 text-left text-[10px] font-semibold text-white hover:brightness-110"
                       style={{ backgroundColor: t.color }}
                     >
                       {t.title}
-                    </span>
+                    </button>
                   ))}
                   {extraCount > 0 && (
                     <span className="text-left text-[10px] font-semibold text-gray-400">

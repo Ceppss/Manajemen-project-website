@@ -3,6 +3,7 @@ import { ArrowLeft, Undo2 } from "lucide-react";
 import ReportForm from "./ReportForm";
 import { logAudit } from "../../auth/audit";
 import { useStore, updateItem } from "../../auth/store";
+import { getRole, canSeeDailyReport } from "../../auth/role";
 
 export default function EditReport() {
   const navigate = useNavigate();
@@ -24,6 +25,14 @@ export default function EditReport() {
     );
   }
 
+  if (!isProject && !canSeeDailyReport(getRole())) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-400">
+        Daily report hanya bisa dilihat oleh member dan lead project.
+      </div>
+    );
+  }
+
   async function handleSubmit(data) {
     const project = projects.find((p) => p.id === data.projectId);
     const task = tasks.find((t) => t.id === data.taskId);
@@ -38,7 +47,7 @@ export default function EditReport() {
     if (isProject) {
       await updateItem("reports", `/reports/${id}`, {
         ...base,
-        priority: report.priority,
+        priority: data.priority || "Middle",
         project: project?.name || "-",
         task: task?.title || "-",
         subtask: report.subtask,

@@ -1,16 +1,26 @@
 import { useState, useMemo } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { ArrowLeft, Search, UserPlus, X } from "lucide-react";
+import { ArrowLeft, Search, UserPlus, X, ChevronDown, Minus } from "lucide-react";
 import DonutChart from "../../components/DonutChart";
 import GanttChart from "../../components/GanttChart";
 import FilterableHeader from "../../components/FilterableHeader";
 import { StatusBadge, PriorityBadge } from "../../components/StatusBadge";
-import { getRole, isLead } from "../../auth/role";
+import { getRole, isAdmin, canAssignTask } from "../../auth/role";
+import { getUser } from "../../auth/api";
 import { logAudit } from "../../auth/audit";
-import { useStore, updateItem, taskStatusSegments } from "../../auth/store";
+import { useStore, updateItem, taskStatusSegments, isTaskOverdue, isProjectOverdue } from "../../auth/store";
 
 const PRIORITY_OPTIONS = ["Not Urgent", "Middle", "Urgent"];
-const STATUS_OPTIONS = ["Not Started", "On going", "Finished"];
+// "Overdue" is computed from the deadline (see isProjectOverdue/isTaskOverdue), not a status
+// anyone sets by hand, so it's only offered as a task filter, never in the project status select.
+const TASK_STATUS_FILTER_OPTIONS = ["Not Started", "On going", "Finished", "Overdue"];
+const PROJECT_STATUS_OPTIONS = ["Not Started", "On going", "Finished"];
+
+const STATUS_SELECT_STYLE = {
+  "Not Started": "border-gray-300 bg-gray-100 text-gray-600",
+  "On going": "border-amber-300 bg-amber-100 text-amber-700",
+  Finished: "border-emerald-300 bg-emerald-100 text-emerald-700",
+};
 
 const inputClass =
   "w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 outline-none transition-colors focus:border-navy";
@@ -29,50 +39,109 @@ export default function ProjectView() {
   const [personId, setPersonId] = useState("");
 
   const role = getRole();
-  const canManage = isLead(role);
-  const project = projects.find((p) => p.id === id) || projects[0];
+  const me = getUser();
+  const myId = Number(me?.id);
+  const canAddTask = canAssignTask(role);
+  const requested = projects.find((p) => p.id === id);
+  const project = requested || projects[0];
 
   const leads = users.filter((u) => u.role === "Lead Project");
   const members = users.filter((u) => u.role === "Member Project");
-  const pj = users.find((u) => u.id === project.pjId);
-  const projectLeads = (project.leadIds || [])
-    .map((lid) => users.find((u) => u.id === lid))
-    .filter(Boolean);
-  const projectMembers = (project.memberIds || [])
-    .map((mid) => users.find((u) => u.id === mid))
-    .filter(Boolean);
+  const pj = users.find((u) => u.id === Number(project.pjId));
+  const projectLeadIds = (project.leadIds || []).map(Number);
+  const projectMemberIds = (project.memberIds || []).map(Number);
+  const projectLeads = projectLeadIds.map((lid) => users.find((u) => u.id === lid)).filter(Boolean);
+  const projectMembers = projectMemberIds.map((mid) => users.find((u) => u.id === mid)).filter(Boolean);
+
+  const isProjectPj = Number(project.pjId) === myId;
+  const isProjectLead = projectLeadIds.includes(myId);
+  const isProjectMember = projectMemberIds.includes(myId);
+  const canManage = isProjectPj || isProjectLead;
+  const canView = isAdmin(role) || isProjectPj || isProjectLead || isProjectMember;
+  const canChangeStatus = isAdmin(role) || isProjectPj || isProjectLead;
 
   const filteredTasks = useMemo(
     () =>
       tasks.filter(
         (t) =>
+          t.projectId === project.id &&
           (priorityFilter === "all" || t.priority === priorityFilter) &&
-          (statusFilter === "all" || t.status === statusFilter) &&
+          (statusFilter === "all"
+            ? true
+            : statusFilter === "Overdue"
+              ? isTaskOverdue(t)
+              : t.status === statusFilter) &&
           (query === "" ||
             t.title.toLowerCase().includes(query.toLowerCase()) ||
             t.description.toLowerCase().includes(query.toLowerCase()))
       ),
-    [priorityFilter, statusFilter, query, tasks]
+    [priorityFilter, statusFilter, query, tasks, project]
   );
 
+  const projectTasks = tasks.filter((t) => t.projectId === project.id);
+  const overviewSegments = taskStatusSegments(projectTasks);
+
   const availableLeads = leads.filter(
-    (l) => l.id !== project.pjId && !(project.leadIds || []).includes(l.id)
+    (l) => l.id !== Number(project.pjId) && !projectLeadIds.includes(l.id)
   );
-  const availableMembers = members.filter((m) => !(project.memberIds || []).includes(m.id));
+  const availableMembers = members.filter((m) => !projectMemberIds.includes(m.id));
 
   async function handleAddPerson() {
     if (!personId) return;
-    const nextLeadIds = memberType === "lead" ? [...(project.leadIds || []), personId] : project.leadIds || [];
-    const nextMemberIds = memberType === "member" ? [...(project.memberIds || []), personId] : project.memberIds || [];
+    const pid = Number(personId);
+    if (projectLeadIds.includes(pid) || projectMemberIds.includes(pid)) return;
+    const nextLeadIds = memberType === "lead" ? [...projectLeadIds, pid] : projectLeadIds;
+    const nextMemberIds = memberType === "member" ? [...projectMemberIds, pid] : projectMemberIds;
     await updateItem("projects", `/projects/${project.id}`, {
       ...project,
       leadIds: nextLeadIds,
       memberIds: nextMemberIds,
     });
-    const person = users.find((u) => u.id === personId);
+    const person = users.find((u) => u.id === pid);
     logAudit("Add Member", `${person?.name} ditambahkan ke ${project.name} (${memberType === "lead" ? "lead" : "member"})`);
     setPersonId("");
     setShowAddMember(false);
+  }
+
+  async function handleRemovePerson(pid, type) {
+    const nextLeadIds = type === "lead" ? projectLeadIds.filter((x) => x !== pid) : projectLeadIds;
+    const nextMemberIds = type === "member" ? projectMemberIds.filter((x) => x !== pid) : projectMemberIds;
+    await updateItem("projects", `/projects/${project.id}`, {
+      ...project,
+      leadIds: nextLeadIds,
+      memberIds: nextMemberIds,
+    });
+    const person = users.find((u) => u.id === pid);
+    logAudit("Remove Member", `${person?.name} dikeluarkan dari ${project.name} (${type === "lead" ? "lead" : "member"})`);
+  }
+
+  async function handleChangeStatus(e) {
+    const status = e.target.value;
+    await updateItem("projects", `/projects/${project.id}`, { ...project, status });
+    logAudit("Update Project Status", `Status ${project.name} diubah menjadi ${status}`);
+  }
+
+  if (!requested) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-400">
+        Project tidak ditemukan.
+      </div>
+    );
+  }
+
+  if (!canView) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center">
+        <p className="text-sm font-semibold text-gray-500">Kamu tidak punya akses ke project ini.</p>
+        <p className="mt-1 text-xs text-gray-400">Hanya PJ, lead, atau member project ini yang bisa melihatnya.</p>
+        <button
+          onClick={() => navigate("/project")}
+          className="mt-4 rounded-lg bg-navy px-5 py-2.5 text-sm font-semibold text-white hover:bg-navy-dark"
+        >
+          Kembali ke Projects
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -89,19 +158,45 @@ export default function ProjectView() {
         <div>
           <h2 className="text-xl font-bold text-navy">{project.name}</h2>
           <p className="mt-0.5 text-sm text-gray-400">
-            PJ: {pj?.name || "-"} {pj ? `(${pj.role})` : ""}
+            Lead Project: {pj?.name || "-"} {pj ? `(${pj.role})` : ""}
           </p>
         </div>
-        <StatusBadge status={project.status} />
+        {canChangeStatus ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wide text-gray-400">Status</span>
+            <div className="relative">
+              <select
+                value={project.status}
+                onChange={handleChangeStatus}
+                className={`appearance-none rounded-lg border py-2 pl-3 pr-9 text-sm font-bold outline-none ${STATUS_SELECT_STYLE[project.status]}`}
+              >
+                {PROJECT_STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+            </div>
+          </div>
+        ) : (
+          <StatusBadge status={project.status} />
+        )}
       </div>
+
+      {isProjectOverdue(project) && (
+        <span className="fixed right-4 top-[76px] z-30 rounded-md border border-red-300 bg-red-100 px-3 py-1 text-xs font-bold text-red-700 shadow-card sm:right-6">
+          Project Overdue
+        </span>
+      )}
 
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-navy/20 bg-white p-6 shadow-card">
-          <h3 className="mb-4 text-center text-base font-bold text-navy">Project Overview</h3>
+          <h3 className="mb-4 text-center text-base font-bold text-navy">Task Overview</h3>
           <div className="flex items-center justify-center gap-8">
-            <DonutChart segments={taskStatusSegments(tasks)} size={170} strokeWidth={20} />
+            <DonutChart segments={overviewSegments} size={170} strokeWidth={20} />
             <ul className="space-y-2">
-              {taskStatusSegments(tasks).map((seg) => (
+              {overviewSegments.map((seg) => (
                 <li key={seg.label} className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                   <span
                     className="h-3.5 w-3.5 rounded-sm"
@@ -142,6 +237,16 @@ export default function ProjectView() {
                   <p className="text-sm font-semibold text-gray-800">{m.name}</p>
                   <p className="text-xs text-gray-400">{m.role}</p>
                 </div>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePerson(m.id, "member")}
+                    title={`Keluarkan ${m.name}`}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-red-300 text-red-500 transition-colors hover:bg-red-500 hover:text-white"
+                  >
+                    <Minus className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </li>
             ))}
             {projectLeads.map((l) => (
@@ -153,6 +258,16 @@ export default function ProjectView() {
                   <p className="text-sm font-semibold text-gray-800">{l.name}</p>
                   <p className="text-xs text-gray-400">{l.role}</p>
                 </div>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePerson(l.id, "lead")}
+                    title={`Keluarkan ${l.name}`}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-red-300 text-red-500 transition-colors hover:bg-red-500 hover:text-white"
+                  >
+                    <Minus className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -170,7 +285,7 @@ export default function ProjectView() {
             className="w-full bg-transparent text-sm text-gray-600 outline-none placeholder:text-gray-400"
           />
         </div>
-        {canManage && (
+        {canAddTask && (
           <button
             onClick={() => navigate(`/project/add-assignment?project=${project.id}`)}
             className="shrink-0 rounded-lg bg-navy px-5 py-2.5 text-sm font-semibold text-white hover:bg-navy-dark"
@@ -196,7 +311,7 @@ export default function ProjectView() {
               <th className="px-5 py-3">
                 <FilterableHeader
                   label="Status"
-                  options={STATUS_OPTIONS}
+                  options={TASK_STATUS_FILTER_OPTIONS}
                   value={statusFilter}
                   onChange={setStatusFilter}
                 />
@@ -214,13 +329,16 @@ export default function ProjectView() {
               </tr>
             )}
             {filteredTasks.map((t) => (
-              <tr key={t.id} className="border-b border-gray-100 last:border-b-0">
+              <tr
+                key={t.id}
+                className={`border-b border-gray-100 last:border-b-0 ${isTaskOverdue(t) ? "bg-red-50/40" : ""}`}
+              >
                 <td className="px-5 py-3">
                   <PriorityBadge priority={t.priority} />
                 </td>
                 <td className="px-5 py-3 font-medium text-gray-700">{t.title}</td>
                 <td className="px-5 py-3">
-                  <StatusBadge status={t.status} />
+                  {isTaskOverdue(t) ? <StatusBadge status="Overdue" /> : <StatusBadge status={t.status} />}
                 </td>
                 <td className="px-5 py-3">
                   <div className="flex flex-wrap gap-1.5">
@@ -229,7 +347,7 @@ export default function ProjectView() {
                         key={aid}
                         className="inline-flex items-center rounded-md border border-gray-300 px-2.5 py-1 text-xs font-semibold text-gray-700"
                       >
-                        {users.find((u) => u.id === aid)?.name}
+                        {users.find((u) => u.id === Number(aid))?.name}
                       </span>
                     ))}
                   </div>

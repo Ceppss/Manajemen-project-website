@@ -1,3 +1,15 @@
+function timeAgo(isoString) {
+  if (!isoString) return "";
+  const diffMs = Date.now() - new Date(isoString.replace(" ", "T")).getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "Baru saja";
+  if (minutes < 60) return `${minutes} menit lalu`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} jam lalu`;
+  const days = Math.floor(hours / 24);
+  return `${days} hari lalu`;
+}
+
 export default function NotificationPanel({ notifications, onItemClick, onMarkAllRead }) {
   const unreadCount = notifications.filter((n) => n.unread).length;
 
@@ -14,6 +26,9 @@ export default function NotificationPanel({ notifications, onItemClick, onMarkAl
         </div>
 
         <ul className="max-h-80 overflow-y-auto">
+          {notifications.length === 0 && (
+            <li className="px-4 py-6 text-center text-xs text-gray-400">Belum ada notifikasi.</li>
+          )}
           {notifications.map((n) => (
             <li key={n.id}>
               <button
@@ -26,7 +41,7 @@ export default function NotificationPanel({ notifications, onItemClick, onMarkAl
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-gray-800">{n.title}</p>
                   <p className="mt-0.5 line-clamp-2 text-xs text-gray-500">{n.description}</p>
-                  <p className="mt-1 text-[11px] text-gray-400">{n.time}</p>
+                  <p className="mt-1 text-[11px] text-gray-400">{timeAgo(n.createdAt)}</p>
                 </div>
               </button>
             </li>

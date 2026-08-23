@@ -2,7 +2,10 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CalendarDays, CheckCircle2, Search, Users } from "lucide-react";
 import { StatusBadge } from "../../components/StatusBadge";
-import { useStore } from "../../auth/store";
+import { useStore, isProjectOverdue } from "../../auth/store";
+import { getRole } from "../../auth/role";
+import { getUser } from "../../auth/api";
+import { visibleProjectsFor } from "../../auth/visibility";
 
 export default function ProjectList() {
   const navigate = useNavigate();
@@ -10,18 +13,22 @@ export default function ProjectList() {
   const users = useStore("users");
   const [query, setQuery] = useState("");
 
+  const me = getUser();
+  const myId = Number(me?.id);
+  const visibleProjects = visibleProjectsFor(getRole(), myId, projects);
+
   function memberName(id) {
-    return users.find((u) => u.id === id)?.name || id;
+    return users.find((u) => u.id === Number(id))?.name || id;
   }
 
   const filtered = useMemo(
     () =>
-      projects.filter(
+      visibleProjects.filter(
         (p) =>
           p.name.toLowerCase().includes(query.toLowerCase()) ||
           p.description.toLowerCase().includes(query.toLowerCase())
       ),
-    [query, projects]
+    [query, visibleProjects]
   );
 
   return (
@@ -29,7 +36,6 @@ export default function ProjectList() {
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-navy">Projects</h2>
-          <p className="mt-0.5 text-sm text-gray-400">Daftar seluruh project yang sedang dikerjakan.</p>
         </div>
         <div className="flex items-center gap-2 rounded-full bg-white px-4 py-2.5 shadow-card sm:w-72">
           <Search className="h-4 w-4 text-gray-400" />
@@ -54,11 +60,20 @@ export default function ProjectList() {
           <button
             key={p.id}
             onClick={() => navigate(`/project/${p.id}`)}
-            className="flex flex-col rounded-2xl border border-navy/20 bg-white p-6 text-left shadow-card transition-transform hover:-translate-y-0.5 hover:border-navy/40"
+            className={`flex flex-col rounded-2xl border bg-white p-6 text-left shadow-card transition-transform hover:-translate-y-0.5 ${
+              isProjectOverdue(p) ? "border-red-300 bg-red-50/30" : "border-navy/20 hover:border-navy/40"
+            }`}
           >
             <div className="mb-1 flex items-start justify-between gap-3">
               <h3 className="text-base font-bold text-navy">{p.name}</h3>
-              <StatusBadge status={p.status} />
+              <div className="flex shrink-0 items-center gap-2">
+                {isProjectOverdue(p) && (
+                  <span className="rounded-md border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
+                    Overdue
+                  </span>
+                )}
+                <StatusBadge status={p.status} />
+              </div>
             </div>
             <p className="mb-5 line-clamp-2 text-sm text-gray-500">{p.description}</p>
 

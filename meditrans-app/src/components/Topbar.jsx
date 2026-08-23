@@ -1,21 +1,35 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Bell, LogOut, Menu } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { currentUser, notifications as initialNotifications } from "../data/mockData";
-import { clearSession, getUser, getProfile } from "../auth/api";
+import { currentUser } from "../data/mockData";
+import {
+  clearSession, getUser, getProfile,
+  getNotifications, markNotificationRead, markAllNotificationsRead,
+} from "../auth/api";
 import { getRole } from "../auth/role";
 import NotificationPanel from "./NotificationPanel";
 import ProfileModal from "./ProfileModal";
 import SearchBar from "./SearchBar";
 
 const CLOSE_DELAY_MS = 250;
+const POLL_INTERVAL_MS = 30000;
 
 export default function Topbar({ onMenuClick }) {
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [notifList, setNotifList] = useState(initialNotifications);
+  const [notifList, setNotifList] = useState([]);
   const closeTimer = useRef(null);
+
+  const loadNotifications = useCallback(() => {
+    getNotifications().then(setNotifList).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(loadNotifications, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [loadNotifications]);
 
   const hasUnread = notifList.some((n) => n.unread);
   const role = getRole();
@@ -45,10 +59,17 @@ export default function Topbar({ onMenuClick }) {
 
   function handleNotificationClick(id) {
     setNotifList((list) => list.map((n) => (n.id === id ? { ...n, unread: false } : n)));
+    markNotificationRead(id).catch(() => {});
+    const link = notifList.find((n) => n.id === id)?.link;
+    if (link) {
+      setShowNotifications(false);
+      navigate(link);
+    }
   }
 
   function handleMarkAllRead() {
     setNotifList((list) => list.map((n) => ({ ...n, unread: false })));
+    markAllNotificationsRead().catch(() => {});
   }
 
   function handleLogout() {
