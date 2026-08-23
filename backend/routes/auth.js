@@ -1,11 +1,21 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const rateLimit = require("express-rate-limit");
 const db = require("../db");
 const { signToken, auth, audit } = require("../middleware");
 
 const router = express.Router();
 
-router.post("/login", (req, res) => {
+// Brute-force guard: 10 attempts per 15 min per IP, regardless of outcome.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Terlalu banyak percobaan login, coba lagi nanti." },
+});
+
+router.post("/login", loginLimiter, (req, res) => {
   const { email, password } = req.body || {};
   const user = db.prepare("SELECT * FROM users WHERE email = ?").get((email || "").trim().toLowerCase());
   if (!user || !bcrypt.compareSync(password || "", user.password_hash)) {
