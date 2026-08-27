@@ -93,19 +93,6 @@ if (!dailyCols.includes("gps")) {
   console.log("Migrated: daily_reports.gps added.");
 }
 
-// Only users are auto-seeded (needed for login).
-// Operational data (projects, tasks, reports) is seeded manually via `npm run seed`.
-const SEED_USERS = [
-  { email: "siti.admin@meditrans.co.id", password: "admin123", name: "Siti Admin", role: "Superadmin" },
-  { email: "ryan.mercer@meditrans.co.id", password: "lead123", name: "Capt. Ryan Mercer", role: "Lead Project" },
-  { email: "rudi.hartono@meditrans.co.id", password: "lead123", name: "Capt. Rudi Hartono", role: "Lead Project" },
-  { email: "maya.sari@meditrans.co.id", password: "lead123", name: "Capt. Maya Sari", role: "Lead Project" },
-  { email: "doni.wijaya@meditrans.co.id", password: "lead123", name: "Capt. Doni Wijaya", role: "Lead Project" },
-  { email: "udin@meditrans.co.id", password: "member123", name: "Udin", role: "Member Project" },
-  { email: "budi@meditrans.co.id", password: "member123", name: "Budi", role: "Member Project" },
-  { email: "bunga@meditrans.co.id", password: "member123", name: "Bunga", role: "Member Project" },
-];
-
 const userCount = db.prepare("SELECT COUNT(*) AS c FROM users").get().c;
 if (userCount === 0) {
   const insertUser = db.prepare("INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)");
